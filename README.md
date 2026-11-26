@@ -1,4 +1,4 @@
-# Gartic Phone Clone — Member 1: Transport & Core Protocol (C# / .NET 8)
+# Gartic Phone Clone — Member 1: Transport & Core Protocol (C# / .NET 10)
 
 RFC 6455 WebSocket server written from scratch on a raw `TcpListener`, a binary
 application protocol, a message dispatcher, heartbeat and per-client bandwidth
