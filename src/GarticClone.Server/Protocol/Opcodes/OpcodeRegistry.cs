@@ -10,6 +10,7 @@ public static class OpcodeRegistry
     private static readonly Type[] Domains =
     [
         typeof(SystemOp),
+        typeof(SessionOp),
     ];
 
     private static readonly Lazy<IReadOnlyDictionary<byte, string>> Names = new(Build);
