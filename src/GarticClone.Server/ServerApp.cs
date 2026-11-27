@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GarticClone.Server.Modules;
+using GarticClone.Server.Modules.Session;
 using GarticClone.Server.Protocol;
 using GarticClone.Server.Protocol.Opcodes;
 using GarticClone.Server.Telemetry;
@@ -11,6 +12,8 @@ namespace GarticClone.Server;
 public sealed class ServerApp
 {
     private readonly Logger _log = Log.For("server");
+    private readonly SessionModule? _sessionModule;
+    private Timer? _evictionTimer;
 
     public WebSocketServer WebSockets { get; }
     public ServerServices Services { get; }
@@ -20,7 +23,7 @@ public sealed class ServerApp
 
     private ServerApp(ServerConfig config)
     {
-        OpcodeRegistry.Validate(); 
+        OpcodeRegistry.Validate();
 
         var sessions = new SessionRegistry();
         var bandwidth = new BandwidthMonitor(config.TelemetryWindowMs, config.TelemetryBucketMs);
@@ -32,7 +35,10 @@ public sealed class ServerApp
 
         Services = new ServerServices { Sessions = sessions, Bandwidth = bandwidth, Heartbeat = Heartbeat };
         Dispatcher = new Dispatcher(Services);
-        foreach (var module in ModuleList.Create()) Dispatcher.RegisterModule(module);
+
+        var modules = ModuleList.Create();
+        foreach (var module in modules) Dispatcher.RegisterModule(module);
+        _sessionModule = modules.OfType<SessionModule>().FirstOrDefault();
 
         WebSockets = new WebSocketServer(config.Host, config.Port, config.WsPath, config.MaxMessageSize, config.AllowedOrigins)
         {
@@ -47,6 +53,20 @@ public sealed class ServerApp
         var app = new ServerApp(config);
         app.WebSockets.Start();
         app.Heartbeat.Start();
+
+        // Her 5 saniyede bir 30 sn'lik bekleme süresini aşan kopuk oyuncuları kontrol eder
+        app._evictionTimer = new Timer(_ =>
+        {
+            try
+            {
+                app._sessionModule?.EvictExpired(app.Services.Sessions);
+            }
+            catch (Exception ex)
+            {
+                app._log.Error("eviction timer failed", ex);
+            }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+
         app._log.Info($"listening on ws://{config.Host}:{app.Port}{config.WsPath}");
         return app;
     }
@@ -70,6 +90,7 @@ public sealed class ServerApp
 
         conn.Closed += (code, reason) =>
         {
+            _sessionModule?.OnClientDisconnected(session.Id, Services.Sessions);
             Services.Sessions.Remove(session.Id);
             Services.Bandwidth.Detach(session.Id);
             _log.Info($"disconnected {session.Id} code={code}{(reason.Length > 0 ? $" reason=\"{reason}\"" : "")}");
@@ -91,6 +112,7 @@ public sealed class ServerApp
 
     public async Task StopAsync()
     {
+        _evictionTimer?.Dispose();
         Heartbeat.Stop();
         await WebSockets.StopAsync();
         _log.Info("stopped");
