@@ -11,6 +11,7 @@ public static class OpcodeRegistry
     [
         typeof(SystemOp),
         typeof(SessionOp),
+	typeof(DrawOp),
     ];
 
     private static readonly Lazy<IReadOnlyDictionary<byte, string>> Names = new(Build);
